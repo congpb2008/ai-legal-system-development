@@ -1,0 +1,20 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite:////data/legal.db
+      - DATA_DIR=/data
+      - RUN_WORKER_INPROCESS=true
+      - OCR_PROVIDER=${OCR_PROVIDER:-auto}
+      - OCR_LANG=${OCR_LANG:-vi}
+      - CORS_ORIGINS=http://localhost:8000
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:
