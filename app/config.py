@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from app.paths import resource_dir, writable_dir
+
+BASE_DIR = writable_dir()
+RESOURCE_DIR = resource_dir()
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env"),
+        env_file=(str(BASE_DIR / ".env") if (BASE_DIR / ".env").exists() else str(RESOURCE_DIR / ".env")),
         env_file_encoding="utf-8",
         extra="ignore",
     )

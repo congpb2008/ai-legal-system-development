@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,12 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from app.api import admin, auth, chat, documents, search
 from app.config import get_settings
 from app.db import init_db
+from app.paths import resource_dir
 from app.worker import start_worker_thread, stop_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 settings = get_settings()
-WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+WEB_DIST = resource_dir() / "web" / "dist"
 
 
 @asynccontextmanager
