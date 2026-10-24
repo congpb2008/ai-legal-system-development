@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_admin
 from app.db import fts_delete_document, fts_upsert_chunks, get_db
-from app.models import AuditEvent, Chunk, Document, LegalNode, Page, ProcessingJob, User
+from app.models import AuditEvent, Chunk, Document, LegalNode, Page, ProcessingJob, SystemSetting, User
 from app.schemas import (
+    AdminSettingsOut,
+    AdminSettingsUpdate,
     AdminStats,
     AdminUserOut,
     AuditOut,
@@ -15,8 +17,16 @@ from app.schemas import (
     UserUpdate,
 )
 from app.services.audit import record_audit
+from app.services.crypto import decrypt_secret
 from app.services.embeddings import get_embedding_provider
+from app.services.llm import LLMClient
 from app.services.retrieval import invalidate_vector_index
+from app.services.runtime_config import (
+    get_effective_embedding_config,
+    get_effective_llm_config,
+    invalidate_runtime_config_cache,
+    set_setting,
+)
 from app.services.text import normalize_vietnamese, tokenize
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -147,7 +157,7 @@ def update_legal_node(
     db.query(Chunk).filter(Chunk.legal_node_id == node.id).delete()
     if node.text.strip():
         context = f"{document.title}\n{node.path}\n{node.title}".strip()
-        provider = get_embedding_provider()
+        provider = get_embedding_provider(db)
         vector = provider.embed_query(f"{context}\n{node.text}")
         chunk = Chunk(
             document_id=document.id,
@@ -178,3 +188,124 @@ def update_legal_node(
     )
     db.commit()
     return {"ok": True, "document_id": document.id}
+
+
+@router.get("/settings", response_model=AdminSettingsOut)
+def get_settings_admin(
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminSettingsOut:
+    llm_cfg = get_effective_llm_config(db)
+    emb_cfg = get_effective_embedding_config(db)
+    llm_secret = db.query(SystemSetting).filter(SystemSetting.key == "llm.api_key").first()
+    emb_secret = db.query(SystemSetting).filter(SystemSetting.key == "embeddings.api_key").first()
+    return AdminSettingsOut(
+        llm={
+            "base_url": llm_cfg.get("base_url") or "",
+            "api_key_set": bool(llm_secret and llm_secret.value) or bool(llm_cfg.get("api_key")),
+            "model": llm_cfg.get("model") or "gpt-4o-mini",
+            "timeout_seconds": int(llm_cfg.get("timeout_seconds") or 300),
+            "enabled": bool(llm_cfg.get("enabled", True)),
+            "source": llm_cfg.get("source") or {},
+        },
+        embeddings={
+            "provider": emb_cfg.get("provider") or "hash",
+            "base_url": emb_cfg.get("base_url") or "",
+            "api_key_set": bool(emb_secret and emb_secret.value) or bool(emb_cfg.get("api_key")),
+            "model": emb_cfg.get("model") or "text-embedding-3-small",
+            "dim": int(emb_cfg.get("dim") or 384),
+            "source": emb_cfg.get("source") or {},
+        },
+    )
+
+
+@router.put("/settings", response_model=AdminSettingsOut)
+def update_settings_admin(
+    payload: AdminSettingsUpdate,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminSettingsOut:
+    changed: list[str] = []
+    if payload.llm:
+        llm = payload.llm
+        if llm.base_url is not None:
+            set_setting(db, "llm.base_url", llm.base_url, False, admin.id)
+            changed.append("llm.base_url")
+        if llm.api_key_clear:
+            set_setting(db, "llm.api_key", None, True, admin.id)
+            changed.append("llm.api_key")
+        elif llm.api_key is not None and llm.api_key != "":
+            set_setting(db, "llm.api_key", llm.api_key, True, admin.id)
+            changed.append("llm.api_key")
+        if llm.model is not None:
+            set_setting(db, "llm.model", llm.model, False, admin.id)
+            changed.append("llm.model")
+        if llm.timeout_seconds is not None:
+            set_setting(db, "llm.timeout_seconds", str(llm.timeout_seconds), False, admin.id)
+            changed.append("llm.timeout_seconds")
+        if llm.enabled is not None:
+            set_setting(db, "llm.enabled", "true" if llm.enabled else "false", False, admin.id)
+            changed.append("llm.enabled")
+    if payload.embeddings:
+        emb = payload.embeddings
+        if emb.provider is not None:
+            set_setting(db, "embeddings.provider", emb.provider, False, admin.id)
+            changed.append("embeddings.provider")
+        if emb.base_url is not None:
+            set_setting(db, "embeddings.base_url", emb.base_url, False, admin.id)
+            changed.append("embeddings.base_url")
+        if emb.api_key_clear:
+            set_setting(db, "embeddings.api_key", None, True, admin.id)
+            changed.append("embeddings.api_key")
+        elif emb.api_key is not None and emb.api_key != "":
+            set_setting(db, "embeddings.api_key", emb.api_key, True, admin.id)
+            changed.append("embeddings.api_key")
+        if emb.model is not None:
+            set_setting(db, "embeddings.model", emb.model, False, admin.id)
+            changed.append("embeddings.model")
+        if emb.dim is not None:
+            set_setting(db, "embeddings.dim", str(emb.dim), False, admin.id)
+            changed.append("embeddings.dim")
+    invalidate_runtime_config_cache()
+    record_audit(
+        db,
+        actor_id=admin.id,
+        action="settings.admin_update",
+        target_type="settings",
+        target_id=None,
+        details={"changed": changed},
+    )
+    db.commit()
+    return get_settings_admin(_admin, db)
+
+
+@router.post("/settings/test/llm")
+def test_llm_settings(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        config = get_effective_llm_config(db)
+        client = LLMClient(config=config)
+        if not client.available:
+            return {"ok": False, "error": "LLM not configured (missing base_url or model)"}
+        # Try a minimal request
+        resp = client.chat([{"role": "user", "content": "ping"}], temperature=0, max_tokens=1)
+        return {"ok": True, "message": "Connected successfully"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@router.post("/settings/test/embeddings")
+def test_embedding_settings(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        provider = get_embedding_provider(db)
+        vectors = provider.embed(["test"])
+        if not vectors or not vectors[0]:
+            return {"ok": False, "error": "Empty embedding returned"}
+        return {"ok": True, "message": f"Connected successfully (dim={len(vectors[0])})"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

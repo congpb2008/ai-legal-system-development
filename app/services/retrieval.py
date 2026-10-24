@@ -74,7 +74,7 @@ def _load_vector_index(db: Session) -> dict[int, tuple[list[str], list[str], np.
 def _vector_candidates(
     db: Session, query: str, limit: int = 80, document_ids: list[str] | None = None
 ) -> list[str]:
-    provider = get_embedding_provider()
+    provider = get_embedding_provider(db)
     query_vector = np.asarray(provider.embed_query(query), dtype=np.float32)
     norm = float(np.linalg.norm(query_vector))
     if norm == 0:

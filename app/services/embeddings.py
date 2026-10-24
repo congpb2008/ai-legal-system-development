@@ -6,11 +6,11 @@ from abc import ABC, abstractmethod
 
 import httpx
 import numpy as np
+from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.db import SessionLocal
+from app.services.runtime_config import get_effective_embedding_config
 from app.services.text import tokenize
-
-settings = get_settings()
 
 
 class EmbeddingProvider(ABC):
@@ -83,12 +83,14 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return vectors
 
 
-def get_embedding_provider() -> EmbeddingProvider:
-    if settings.embedding_provider == "openai" and settings.embedding_base_url:
+def get_embedding_provider(db: Session | None = None) -> EmbeddingProvider:
+    config = get_effective_embedding_config(db)
+    provider = (config.get("provider") or "hash").lower()
+    if provider == "openai" and config.get("base_url"):
         return OpenAIEmbeddingProvider(
-            settings.embedding_base_url,
-            settings.embedding_api_key,
-            settings.embedding_model,
-            settings.embedding_dim,
+            config.get("base_url") or "",
+            config.get("api_key") or "",
+            config.get("model") or "text-embedding-3-small",
+            int(config.get("dim") or 384),
         )
-    return HashEmbeddingProvider(settings.embedding_dim)
+    return HashEmbeddingProvider(int(config.get("dim") or 384))

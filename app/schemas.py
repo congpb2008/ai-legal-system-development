@@ -188,3 +188,49 @@ class AdminStats(BaseModel):
     pages: int
     chunks: int
     users: int
+
+
+class LLMSettingsIn(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    api_key_clear: bool = False
+    model: str | None = None
+    timeout_seconds: int | None = None
+    enabled: bool | None = None
+
+
+class EmbeddingSettingsIn(BaseModel):
+    provider: Literal["hash", "openai"] | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    api_key_clear: bool = False
+    model: str | None = None
+    dim: int | None = None
+
+
+class LLMSettingsOut(BaseModel):
+    base_url: str = ""
+    api_key_set: bool = False
+    model: str = "gpt-4o-mini"
+    timeout_seconds: int = 300
+    enabled: bool = True
+    source: dict[str, str] = Field(default_factory=dict)
+
+
+class EmbeddingSettingsOut(BaseModel):
+    provider: Literal["hash", "openai"] = "hash"
+    base_url: str = ""
+    api_key_set: bool = False
+    model: str = "text-embedding-3-small"
+    dim: int = 384
+    source: dict[str, str] = Field(default_factory=dict)
+
+
+class AdminSettingsOut(BaseModel):
+    llm: LLMSettingsOut
+    embeddings: EmbeddingSettingsOut
+
+
+class AdminSettingsUpdate(BaseModel):
+    llm: LLMSettingsIn | None = None
+    embeddings: EmbeddingSettingsIn | None = None

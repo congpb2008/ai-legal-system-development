@@ -1,4 +1,5 @@
 import type {
+  AdminSettings,
   AdminStats,
   AdminUser,
   AuditEvent,
@@ -83,16 +84,57 @@ export const api = {
     return request(`/api/documents/${id}`, { method: "DELETE" });
   },
 
-  jobs(id: string): Promise<Job[]> {
-    return request(`/api/documents/${id}/jobs`);
+  documentTree(id: string): Promise<LegalNode[]> {
+    return request(`/api/documents/${id}/tree`);
   },
 
-  nodes(id: string): Promise<LegalNode[]> {
-    return request(`/api/documents/${id}/nodes`);
+  documentPages(id: string): Promise<PageRecord[]> {
+    return request(`/api/documents/${id}/pages`);
   },
 
-  pageText(id: string, page: number): Promise<PageRecord> {
-    return request(`/api/documents/${id}/pages/${page}`);
+  search(query: string, documentIds?: string[]): Promise<SearchResult[]> {
+    return request("/api/search", {
+      method: "POST",
+      body: JSON.stringify({ query, top_k: 8, document_ids: documentIds }),
+    });
+  },
+
+  chat(
+    message: string,
+    history: Array<{ role: "user" | "assistant"; content: string }> = [],
+    documentIds?: string[],
+    generateAnswer = true,
+  ): Promise<ChatResponse> {
+    return request("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        history,
+        top_k: 8,
+        generate_answer: generateAnswer,
+        document_ids: documentIds,
+      }),
+    });
+  },
+
+  streamChat(
+    message: string,
+    history: Array<{ role: "user" | "assistant"; content: string }> = [],
+    documentIds?: string[],
+    generateAnswer = true,
+  ): Promise<Response> {
+    return fetch("/api/chat/stream", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history,
+        top_k: 8,
+        generate_answer: generateAnswer,
+        document_ids: documentIds,
+      }),
+    });
   },
 
   adminStats(): Promise<AdminStats> {
@@ -103,22 +145,66 @@ export const api = {
     return request("/api/admin/users");
   },
 
-  updateUser(id: string, patch: { role?: "user" | "admin"; is_active?: boolean }): Promise<AdminUser> {
-    return request(`/api/admin/users/${id}`, {
+  adminAudit(): Promise<AuditEvent[]> {
+    return request("/api/admin/audit");
+  },
+
+  updateUser(userId: string, patch: { role?: "user" | "admin"; is_active?: boolean }): Promise<AdminUser> {
+    return request(`/api/admin/users/${userId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
   },
 
-  adminAudit(): Promise<AuditEvent[]> {
-    return request("/api/admin/audit?limit=200");
+  reindexDocument(documentId: string): Promise<{ ok: boolean; job_id: string }> {
+    return request(`/api/admin/documents/${documentId}/reindex`, { method: "POST" });
   },
 
-  reindexDocument(id: string): Promise<{ ok: boolean; job_id: string }> {
-    return request(`/api/admin/documents/${id}/reindex`, { method: "POST" });
+  updateLegalNode(
+    nodeId: string,
+    patch: { title?: string; text?: string },
+  ): Promise<{ ok: boolean; document_id: string }> {
+    return request(`/api/admin/legal-nodes/${nodeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
   },
 
-  documentFileUrl(id: string): string {
-    return `/api/documents/${id}/file`;
+  adminSettings(): Promise<AdminSettings> {
+    return request("/api/admin/settings");
+  },
+
+  updateAdminSettings(payload: {
+    llm?: Partial<{
+      base_url: string | null;
+      api_key: string | null;
+      api_key_clear: boolean;
+      model: string | null;
+      timeout_seconds: number | null;
+      enabled: boolean | null;
+    }>;
+    embeddings?: Partial<{
+      provider: "hash" | "openai" | null;
+      base_url: string | null;
+      api_key: string | null;
+      api_key_clear: boolean;
+      model: string | null;
+      dim: number | null;
+    }>;
+  }): Promise<AdminSettings> {
+    return request("/api/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  testLLM(): Promise<{ ok: boolean; message?: string; error?: string }> {
+    return request("/api/admin/settings/test/llm", { method: "POST" });
+  },
+
+  testEmbeddings(): Promise<{ ok: boolean; message?: string; error?: string }> {
+    return request("/api/admin/settings/test/embeddings", { method: "POST" });
   },
 };
+
+import type { ChatResponse, SearchResult } from "./types";

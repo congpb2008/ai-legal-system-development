@@ -179,7 +179,7 @@ def _save_chunks(
     drafts: list[ChunkDraft],
     node_mapping: dict[int, LegalNode],
 ) -> list[Chunk]:
-    provider = get_embedding_provider()
+    provider = get_embedding_provider(db)
     created: list[Chunk] = []
     batch_size = 32
     for offset in range(0, len(drafts), batch_size):

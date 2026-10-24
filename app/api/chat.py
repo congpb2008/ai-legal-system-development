@@ -48,7 +48,7 @@ def chat(
         citations = []
         abstained = True
     else:
-        answer, citations, abstained = generate_answer(payload.message, results, _history(payload))
+        answer, citations, abstained = generate_answer(payload.message, results, _history(payload), db=db)
     answer_ms = int((time.perf_counter() - answer_started) * 1000)
     return ChatResponse(
         answer=answer,
@@ -109,7 +109,7 @@ def chat_stream(
         answer_parts: list[str] = []
         answer_started = time.perf_counter()
         try:
-            for token in stream_answer(payload.message, results, _history(payload)):
+            for token in stream_answer(payload.message, results, _history(payload), db=db):
                 answer_parts.append(token)
                 yield _sse("token", {"text": token})
         except Exception as exc:  # pragma: no cover - defensive SSE path

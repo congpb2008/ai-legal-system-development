@@ -4,15 +4,17 @@ import json
 import logging
 import re
 from collections.abc import Iterator
+from typing import Any
 
 import httpx
+from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.db import SessionLocal
 from app.schemas import Citation, SearchResult
+from app.services.runtime_config import get_effective_llm_config
 from app.services.text import snippet
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 _SYSTEM_PROMPT = """Bạn là trợ lý tra cứu văn bản pháp luật ngân hàng bằng tiếng Việt.
 
@@ -39,11 +41,22 @@ def _chat_endpoint(base_url: str) -> str:
 
 
 class LLMClient:
-    def __init__(self) -> None:
-        self.base_url = settings.llm_base_url
-        self.api_key = settings.llm_api_key
-        self.model = settings.llm_model
-        self.timeout = settings.llm_timeout_seconds
+    def __init__(self, config: dict[str, Any] | None = None, db: Session | None = None) -> None:
+        if config is None:
+            if db is None:
+                db = SessionLocal()
+                close_db = True
+            else:
+                close_db = False
+            try:
+                config = get_effective_llm_config(db)
+            finally:
+                if close_db:
+                    db.close()
+        self.base_url = (config or {}).get("base_url") or ""
+        self.api_key = (config or {}).get("api_key") or ""
+        self.model = (config or {}).get("model") or ""
+        self.timeout = (config or {}).get("timeout_seconds") or 300
 
     @property
     def available(self) -> bool:
@@ -191,10 +204,11 @@ def generate_answer(
     question: str,
     results: list[SearchResult],
     history: list[dict] | None = None,
+    db: Session | None = None,
 ) -> tuple[str, list[Citation], bool]:
     if not results:
         return extractive_answer([]), [], True
-    client = LLMClient()
+    client = LLMClient(db=db)
     if not client.available:
         answer = extractive_answer(results)
         return answer, make_citations(results, answer), False
@@ -214,11 +228,12 @@ def stream_answer(
     question: str,
     results: list[SearchResult],
     history: list[dict] | None = None,
+    db: Session | None = None,
 ) -> Iterator[str]:
     if not results:
         yield extractive_answer([])
         return
-    client = LLMClient()
+    client = LLMClient(db=db)
     if not client.available:
         yield extractive_answer(results)
         return

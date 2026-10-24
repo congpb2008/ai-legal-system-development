@@ -84,7 +84,10 @@ export type AdminStats = {
   users: number;
 };
 
-export type AdminUser = User & {
+export type AdminUser = {
+  id: string;
+  email: string;
+  role: "admin" | "user";
   is_active: boolean;
   created_at: string;
 };
@@ -99,10 +102,46 @@ export type AuditEvent = {
   created_at: string;
 };
 
-export type PageRecord = {
-  page_number: number;
+export type PageLine = {
   text: string;
-  text_source: string;
+  bbox: number[];
+};
+
+export type PageRecord = {
+  id: string;
+  page_number: number;
   width: number | null;
   height: number | null;
+  image_path: string | null;
+  text: string;
+  lines: PageLine[];
+  text_source: string;
+  ocr_confidence: number | null;
+};
+
+export type DocumentTreeNode = LegalNode & {
+  children: DocumentTreeNode[];
+};
+
+export type LLMSettings = {
+  base_url: string;
+  api_key_set: boolean;
+  model: string;
+  timeout_seconds: number;
+  enabled: boolean;
+  source: Record<string, string>;
+};
+
+export type EmbeddingSettings = {
+  provider: "hash" | "openai";
+  base_url: string;
+  api_key_set: boolean;
+  model: string;
+  dim: number;
+  source: Record<string, string>;
+};
+
+export type AdminSettings = {
+  llm: LLMSettings;
+  embeddings: EmbeddingSettings;
 };
